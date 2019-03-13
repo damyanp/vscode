@@ -20,6 +20,12 @@ import { ITextModelService } from 'vs/editor/common/services/resolverService';
 import { IHashService } from 'vs/workbench/services/hash/common/hashService';
 import { FILE_EDITOR_INPUT_ID, TEXT_FILE_EDITOR_ID, BINARY_FILE_EDITOR_ID } from 'vs/workbench/contrib/files/common/files';
 import { ILabelService } from 'vs/platform/label/common/label';
+import { isWindows } from 'vs/base/common/platform';
+import * as ffi from 'ffi';
+
+const Kernel32 = new ffi.Library('Kernel32.dll', {
+	'GetLongPathNameW': ['int', ['pointer', 'pointer', 'int']]
+});
 
 /**
  * A file editor input is the input type for the file editor of file system resources.
@@ -44,6 +50,19 @@ export class FileEditorInput extends EditorInput implements IFileEditorInput {
 		@ILabelService private readonly labelService: ILabelService
 	) {
 		super();
+
+		if (isWindows) {
+			const encoding = 'ucs2';
+			const byteSize = Buffer.byteLength(resource.fsPath, encoding);
+			const pathBuffer = Buffer.alloc(byteSize + 2, resource.fsPath, encoding);
+			pathBuffer[byteSize] = 0;
+			pathBuffer[byteSize + 1] = 0;
+
+			const newLength = Kernel32.GetLongPathNameW(pathBuffer, pathBuffer, 0);
+			const buffer = Buffer.alloc(newLength * 2);
+			Kernel32.GetLongPathNameW(pathBuffer, buffer, newLength);
+			resource = URI.file(buffer.toString(encoding));
+		}
 
 		if (preferredEncoding) {
 			this.setPreferredEncoding(preferredEncoding);
@@ -317,7 +336,7 @@ export class FileEditorInput extends EditorInput implements IFileEditorInput {
 		}
 
 		if (otherInput) {
-			return otherInput instanceof FileEditorInput && otherInput.resource.toString() === this.resource.toString();
+			return otherInput instanceof FileEditorInput && otherInput.resource.toString().toLowerCase() === this.resource.toString().toLowerCase();
 		}
 
 		return false;

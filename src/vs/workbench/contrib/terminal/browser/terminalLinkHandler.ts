@@ -293,7 +293,8 @@ export class TerminalLinkHandler {
 			if (stat.isDirectory) {
 				return null;
 			}
-			return preprocessedLink;
+
+			return preprocessedLink.replace(linkUrl, stat.resource.fsPath);
 		});
 	}
 

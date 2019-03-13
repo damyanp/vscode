@@ -42,6 +42,11 @@ import { onUnexpectedError } from 'vs/base/common/errors';
 import product from 'vs/platform/product/node/product';
 import { IEncodingOverride, ResourceEncodings } from 'vs/workbench/services/files/node/encoding';
 import { createReadableOfSnapshot } from 'vs/workbench/services/files/node/streams';
+import * as ffi from 'ffi';
+
+const Kernel32 = new ffi.Library('Kernel32.dll', {
+	'GetLongPathNameW': ['int', ['pointer', 'pointer', 'int']]
+});
 
 export interface IFileServiceTestOptions {
 	disableWatcher?: boolean;
@@ -1125,6 +1130,23 @@ function etag(arg1: any, arg2?: any): string {
 	return `"${crypto.createHash('sha1').update(String(size) + String(mtime)).digest('hex')}"`;
 }
 
+function resolveCase(resource: uri): uri {
+	if (isWindows) {
+		const encoding = 'ucs2';
+		const byteSize = Buffer.byteLength(resource.fsPath, encoding);
+		const pathBuffer = Buffer.alloc(byteSize + 2, resource.fsPath, encoding);
+		pathBuffer[byteSize] = 0;
+		pathBuffer[byteSize + 1] = 0;
+
+		const newLength = Kernel32.GetLongPathNameW(pathBuffer, pathBuffer, 0);
+		const buffer = Buffer.alloc(newLength * 2);
+		Kernel32.GetLongPathNameW(pathBuffer, buffer, newLength);
+		resource = uri.file(buffer.toString(encoding));
+	}
+
+	return resource;
+}
+
 export class StatResolver {
 	private name: string;
 	private etag: string;
@@ -1159,6 +1181,7 @@ export class StatResolver {
 
 		// File Specific Data
 		if (!this.isDirectory) {
+			fileStat.resource = resolveCase(fileStat.resource);
 			return Promise.resolve(fileStat);
 		}
 
